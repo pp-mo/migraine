@@ -63,56 +63,14 @@ def decode_time_string(input_time, time_string):
 
     return (result_time, time_prob)
 
-#
-# # Each comment-line in "standard format", should begin "tttt Lx[-x]"
-# # But plenty of lines may not obey this ...
-# line_re = re.compile(
-#     r"(?P<time>\d*)\?*\s*[^l]*\s*(l(?P<lA>\d)(-(?P<lB>\d))?)?",
-#     flags=re.IGNORECASE)
-#
-# # NOTE: this should ALWAYS match, as everything is
-#
-# def decode_comment_line_OLD(input_time, line):
-#     # Decode a single comment line.
-#     # "OLD" version : single regexp approach
-#     # Return (timedate, level, problems) : (datetime, float, iterable of string or None)
-#     match = line_re.match(line)
-#     if match is None:
-#         assert False, "Match failed : should not happen"
-#     time, lA, lB = (match.group(key) for key in ('time', 'lA', 'lB'))
-#     timestamp, time_error = decode_time_string(input_time, time)
-#     probs = set()
-#     level = 0.0
-#     if time_error:
-#         probs.add(time_error)
-#     if not lA:
-#         if lB:
-#             assert 1
-#         assert not lB
-#         probs.add('no level code')
-#     else:
-#         level = int(lA)
-#         assert level >= 0 and level <= 5
-#         if lB:
-#             lB = int(lB)
-#             if lB == level + 1:
-#                 level = float(level) + 0.5
-#             else:
-#                 probs.add('lB/lA mismatch')
-#         level = float(level)
-#
-#     if probs:
-#         probs = sorted(probs)
-#     else:
-#         probs = None
-#     return (timestamp, level, probs)
-
 
 # Each comment-line in "standard format", should begin "tttt Lx[-x]"
 def decode_comment_line(input_time, line):
-    global skip_initial_missing_levels
-    # Decode a single comment line.
-    # Return (timedate, level, problems, took_pill) : (datetime, float, iterable of string or None, bool)
+    """
+    Decode a single comment line.
+    Return (timedate:datetime, level:float, problems:Set[str], took_pill:bool)
+    """
+    global skip_initial_missing_levels  #? debug usage only
     # match = line_re.match(line)
     # if match is None:
     #     assert False, "Match failed : should not happen"
@@ -123,13 +81,15 @@ def decode_comment_line(input_time, line):
     line_rest = line[time_match.end():]
     level_match = re.search(r'l(?P<lA>\d)(-(?P<lB>\d))?', line_rest,
                            flags=re.IGNORECASE)
-    pill_match = re.search(r'\b(pill|almo(tryptan))\b',
+    pill_match = re.search(r'\b(pill|almo(tryptan)?)\b',
                            line_rest,
                            re.IGNORECASE)
     took_pill = pill_match is not None
     if level_match:
         lA = level_match.group('lA')
         lB = level_match.group('lB')
+    elif re.search(r'\b(ok|okay)\b', line_rest, re.IGNORECASE):
+        lA, lB = 0, None
     elif took_pill:
         lA, lB = '2', ''  # Assume standard "l2" when a pill was taken
     else:
@@ -138,7 +98,7 @@ def decode_comment_line(input_time, line):
     level = None
     if time_error:
         probs.add(time_error)
-    if not lA:
+    if lA is None:
         assert not lB
         probs.add('no level code')
         if skip_initial_missing_levels == 0:
@@ -165,18 +125,24 @@ def decode_comment_line(input_time, line):
     return (timestamp, level, probs, took_pill)
 
 
-
-
-
 PROBLEMS_SET_NOINFO = sorted(['no level code', 'no time'])
 PROBLEMS_SET_NOTIME = ['no time']
 
 def decode_mark(mark):
-    # Decode a "mark" dictionary
-    # Relevant components: 'date', 'time', 'comment'
-    # N.B. several "marks" may belong to a single day (need grouping).
-    # mark 'time' should only be used when timestamps absent in 'comment'
-    # 'comment' will consist of multiple lines
+    """
+    Decode a "mark" dictionary
+
+    Returns: (time:datetime, out_lines_data:List[str], out_lines:List[str])
+        * time is the record-time of the mark
+        * out_lines is decode-info from the comments line
+          = List[(comment-timedate:datetime, level:float, problems:Set[str], took_pill:bool)]
+        * out_lines_data is the corresonpding raw-form comment string lines (split + stripped)
+
+    Relevant elements (keys) of the 'mark' are interpreted: 'date', 'time', 'comment'
+    N.B. several "marks" may belong to a single day (will need grouping).
+    'comment' consists of multiple lines
+    The mark 'time' is assigned to individual comments, *only* when timestamps absent in 'comment'
+    """
     time = datetime.fromisoformat(mark['date'] + " " + mark['time'])
     lines = mark['comment'].split('\n')
     lines = [line.strip() for line in lines]
@@ -254,8 +220,6 @@ for i_mark in range(len(mark_linesets)):
     lines = mark_lines[i_mark]
     if not lines:
         continue
-    if i_mark == 1237:
-        t_dbg = 0
     print('')
     print(f'i_bad = {i_mark}')
     for i_line, (info, line) in enumerate(zip(infos, lines)):
