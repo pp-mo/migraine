@@ -25,8 +25,15 @@ def pr(lines):
     print('\n'.join(str(x) for x in lines))
 
 
-prev_mark_day = datetime(2000,1,1)
-day_begun = False
+# Globals for previous-day tracking affecting 24-hr logic in time decoding
+previous_mark_day = None
+day_begun = None
+
+def reset_previous_day():
+    global previous_mark_day, day_begun
+    previous_mark_day = datetime(2000, 1, 1)
+    day_begun = False
+
 
 def decode_time_string(input_time, time_string):
     # Decode a four-digit time string and return a timestamp.
@@ -34,7 +41,7 @@ def decode_time_string(input_time, time_string):
     #   (time, error_string) : (timedate, string or None)
     # Replaces input time-of-day with content from string, but will also move
     # into next day if hours>=24.
-    global prev_mark_day, day_begun
+    global previous_mark_day, day_begun
 
     time_prob = None
     if time_string == '':
@@ -54,9 +61,9 @@ def decode_time_string(input_time, time_string):
 
     year, month, day = input_time.year, input_time.month, input_time.day
     result_time = datetime(year, month, day)
-    if result_time > prev_mark_day:
+    if result_time > previous_mark_day:
         day_begun = False
-        prev_mark_day = result_time
+        previous_mark_day = result_time
 
     if bool(time_prob) or hh > 9:
         # mark this day as 'begun', after which 00:00-07:55 --> next day
@@ -197,6 +204,7 @@ skip_initial_missing_levels = 0
 #         print(f"Failed @{i_mark}: {e}")
 #         print_raw_mark(i_mark, mark)
 
+reset_previous_day()
 decodes = [decode_mark(mark) for mark in marks]
 # Each mark-decode is (mark-time, line-decodes)
 mark_times = [decode[0] for decode in decodes]
@@ -229,11 +237,9 @@ print(f"First-none-ok={i_noneoks[0]},  Last-none-ok={i_noneoks[-1]}")
 
 
 #debug...
-prev_mark_day = datetime(2000,1,1)
-day_begun = False
+reset_previous_day()
 for i_mark in range(1664,1667):
     decode_mark(marks[i_mark])
-
 
 # print('')
 # for i_mark in range(1231, 1234):
@@ -242,14 +248,19 @@ for i_mark in range(1664,1667):
 
 # Show ALL the nasties...
 
-out_mode = "intermediate"
+# output_modes = ["intermediate"]
+# output_modes = ["csv-like"]
+output_modes = ["csv-like", "intermediate"]
 
-out_lines = []
+
+if "csv-like" in output_modes:
+    csv_output_lines = []
+    # Reset (separate) per-day tracking logic for this
+    prev_date = datetime(2000, 1, 1)
+    latest_date = prev_date
 
 # for i_mark in i_noneoks:
 # for i_mark in range(260, 280):
-prev_date = datetime(2000,1,1)
-latest_date = prev_date
 for i_mark in range(len(mark_linesets)):
     mark_time = mark_times[i_mark]
     infos = mark_linesets[i_mark]
@@ -257,15 +268,17 @@ for i_mark in range(len(mark_linesets)):
     if not lines:
         continue
 
-    # show raw CSV output split by entry day (for humans only)
-    current_date = datetime(mark_time.year, mark_time.month, mark_time.day)
-    if current_date > latest_date:
-        out_lines.append('')
-    latest_date = current_date
+    if "csv-like" in output_modes:
+        # show raw CSV output split by entry day (for humans only)
+        current_date = datetime(mark_time.year, mark_time.month, mark_time.day)
+        if current_date > latest_date:
+            csv_output_lines.append('')
+        latest_date = current_date
 
-    if i_mark not in i_alloks:
-        print('')
-        print(f'i_mark = {i_mark}')
+    if 'intermediate' in output_modes:
+        if i_mark not in i_alloks:
+            print('')
+            print(f'i_mark = {i_mark}')
 
     for i_line, (info, line) in enumerate(zip(infos, lines)):
         errs = info[2]
@@ -291,50 +304,52 @@ for i_mark in range(len(mark_linesets)):
         if 'no time' in errs and not pill_str:
             ok_str = "SKIPPED!"
 
-        # if 'no level code' in errs and 'no time' in errs:
-        # if errs and 'no time' not in errs and 'no level code' not in errs:
-        # if errs: # and errs != ['no level code']:
-        print(f'@{i_line:03d} {ok_str} T{info[0]} L{lev} {pill_str.ljust(4)}  \\{line}\\ {errs!s}')
+        if 'intermediate' in output_modes:
+            # if 'no level code' in errs and 'no time' in errs:
+            # if errs and 'no time' not in errs and 'no level code' not in errs:
+            # if errs: # and errs != ['no level code']:
+            print(f'@{i_line:03d} {ok_str} T{info[0]} L{lev} {pill_str.ljust(4)}  \\{line}\\ {errs!s}')
 
         # # Skip out from certain errors
         # if 'no time' in errs and not pill_str:
         #     # Simply skip these ones : they seem to have no value
         #     continue
 
-        line_els = [
-            'i-mark:', i_mark,
-            'i-line:', i_line
-        ]
-        line_els += [
-            'mark-time:', str(mark_time)
-        ]
+        if "csv-like" in output_modes:
+            line_els = [
+                'i-mark:', i_mark,
+                'i-line:', i_line
+            ]
+            line_els += [
+                'mark-time:', str(mark_time)
+            ]
 
-        tref = info[0]
-        fwd_date = "- - -" if tref >= prev_date else "BACK!"
-        prev_date = tref
-        line_els += [
-            "date-fwd:", fwd_date,
-            "datetime:",
-            tref.year, tref.month, tref.day,
-            tref.hour, tref.minute
-        ]
+            tref = info[0]
+            fwd_date = "- - -" if tref >= prev_date else "BACK!"
+            prev_date = tref
+            line_els += [
+                "date-fwd:", fwd_date,
+                "datetime:",
+                tref.year, tref.month, tref.day,
+                tref.hour, tref.minute
+            ]
 
-        line_els += [
-            "pill:", 1 if pill_str else 0
-        ]
-        line_els += [
-            "level:", -1.0 if '--' in lev else float(lev)
-        ]
-        line_els += [
-            "errors:", errs
-        ]
-        # escape the line content : must not have
-        line_els += [
-            'raw:', line
-        ]
+            line_els += [
+                "pill:", 1 if pill_str else 0
+            ]
+            line_els += [
+                "level:", -1.0 if '--' in lev else float(lev)
+            ]
+            line_els += [
+                "errors:", errs
+            ]
+            # escape the line content : must not have
+            line_els += [
+                'raw:', line
+            ]
 
-        line_els = [repr(el) for el in line_els]
-        out_lines.append(', '.join(line_els))
+            line_els = [repr(el) for el in line_els]
+            csv_output_lines.append(', '.join(line_els))
 
 # import matplotlib.pyplot as plt
 # plt.plot(~marks_ok)
@@ -343,13 +358,14 @@ for i_mark in range(len(mark_linesets)):
 # for i_line, line in enumerate(out_lines):
 #     print(f'line#{i_line:04} : "{line}"')
 
-filepth = Path(filepath)
-basename = filepth.name
-extension_string = '.json'
-assert basename.endswith(extension_string)
-outname = "output_" + basename[:-len(extension_string)] + ".csv"
-pth_out = filepth.parent / outname
-with open(pth_out, 'wt') as f_out:
-    f_out.write('\n'.join(out_lines))
+if "csv-like" in output_modes:
+    filepth = Path(filepath)
+    basename = filepth.name
+    extension_string = '.json'
+    assert basename.endswith(extension_string)
+    outname = "output_" + basename[:-len(extension_string)] + ".csv"
+    pth_out = filepth.parent / outname
+    with open(pth_out, 'wt') as f_out:
+        f_out.write('\n'.join(csv_output_lines))
 
 t_dbg = 0
