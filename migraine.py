@@ -4,12 +4,13 @@ import json
 from pathlib import Path
 import re
 
-filespec = 'data_pr*.json'
+filespec = 'combined*.json'
 dirpath = Path('.').absolute()
 dirpath = dirpath / 'sample_data'
 filepaths = list(glob(str(dirpath / filespec)))
 filepath = filepaths[0]
-#print(filepath)
+
+
 
 with open(filepath) as f_in:
     text = f_in.read()
@@ -24,12 +25,17 @@ def pr(lines):
     print('\n'.join(str(x) for x in lines))
 
 
+prev_mark_day = datetime(2000,1,1)
+day_begun = False
+
 def decode_time_string(input_time, time_string):
     # Decode a four-digit time string and return a timestamp.
     # Returns :
     #   (time, error_string) : (timedate, string or None)
     # Replaces input time-of-day with content from string, but will also move
     # into next day if hours>=24.
+    global prev_mark_day, day_begun
+
     time_prob = None
     if time_string == '':
         time_prob = 'no time'
@@ -46,17 +52,26 @@ def decode_time_string(input_time, time_string):
         if (mm < 0 or mm > 59):
             time_prob = 'bad time mins'
 
+    year, month, day = input_time.year, input_time.month, input_time.day
+    result_time = datetime(year, month, day)
+    if result_time > prev_mark_day:
+        day_begun = False
+        prev_mark_day = result_time
+
+    if bool(time_prob) or hh > 9:
+        # mark this day as 'begun', after which 00:00-07:55 --> next day
+        day_begun = True
+
     if not time_prob:
-        year, month, day = input_time.year, input_time.month, input_time.day
-        result_time = datetime(year, month, day)
         # If there is a recorded time, we expect it to be roughly earlier than
         # the comment record time.
         # We may refer to an early morning by hours from 24..30,
         # but we CAN also refers to an early morning of the next day directly
         # as hours 0000..0700 (say)
         record_hour = input_time.hour
-        if hh >= 0 and hh < 8 and hh < (record_hour - 1):
-            hh += 24
+        if day_begun:
+            if hh >= 0 and hh < 8 and hh < (record_hour - 1):
+                hh += 24
         result_time += timedelta(hours=hh, minutes=mm)
     else:
         result_time = input_time
@@ -71,24 +86,30 @@ def decode_comment_line(input_time, line):
     Return (timedate:datetime, level:float, problems:Set[str], took_pill:bool)
     """
     global skip_initial_missing_levels  #? debug usage only
-    # match = line_re.match(line)
-    # if match is None:
-    #     assert False, "Match failed : should not happen"
-    # time, lA, lB = (match.group(key) for key in ('time', 'lA', 'lB'))
-    time_match = re.match(r'^\d*', line)
-    time_string = time_match.group()  # ALWAYS a string (maybe empty)
-    timestamp, time_error = decode_time_string(input_time, time_string)
-    line_rest = line[time_match.end():]
-    level_match = re.search(r'l(?P<lA>\d)(-(?P<lB>\d))?', line_rest,
-                           flags=re.IGNORECASE)
+
+    # Find pill *anywhere* in line (and remove)
     pill_match = re.search(r'\b(pill|almo(tryptan)?)\b',
-                           line_rest,
+                           line,
                            re.IGNORECASE)
     took_pill = pill_match is not None
+    if took_pill:
+        line = line[0:pill_match.start()] + line[pill_match.end() + 1:]
+
+    time_match = re.search(r'\d\d\d\d', line)
+    if time_match:
+        time_string = time_match.group()  # ALWAYS a string (maybe empty)
+        line = line[:time_match.start()] + line[time_match.end() + 1:]
+    else:
+        time_string = ""
+    timestamp, time_error = decode_time_string(input_time, time_string)
+
+    level_match = re.search(r'l(?P<lA>\d)(-(?P<lB>\d))?', line,
+                           flags=re.IGNORECASE)
     if level_match:
         lA = level_match.group('lA')
         lB = level_match.group('lB')
-    elif re.search(r'\b(ok|okay)\b', line_rest, re.IGNORECASE):
+    elif re.search(r'\b(ok|okay)\b', line, re.IGNORECASE):
+        # NOTE: not including "better" : too often used as relative term
         lA, lB = 0, None
     elif took_pill:
         lA, lB = '2', ''  # Assume standard "l2" when a pill was taken
@@ -134,9 +155,9 @@ def decode_mark(mark):
 
     Returns: (time:datetime, out_lines_data:List[str], out_lines:List[str])
         * time is the record-time of the mark
-        * out_lines is decode-info from the comments line
+        * out_lines_data is decode-info from the comments line
           = List[(comment-timedate:datetime, level:float, problems:Set[str], took_pill:bool)]
-        * out_lines_data is the corresonpding raw-form comment string lines (split + stripped)
+        * out_lines is the corresponding raw-form comment string lines (split + stripped)
 
     Relevant elements (keys) of the 'mark' are interpreted: 'date', 'time', 'comment'
     N.B. several "marks" may belong to a single day (will need grouping).
@@ -168,13 +189,13 @@ def print_raw_mark(i_mark, mark):
         print(f"    @{key}: {cont!r}")
 
 global skip_initial_missing_levels
-skip_initial_missing_levels = 2
-for i_mark, mark in enumerate(marks):
-    try:
-        decode_mark(mark)
-    except AssertionError as e:
-        print(f"Failed @{i_mark}: {e}")
-        print_raw_mark(i_mark, mark)
+skip_initial_missing_levels = 0
+# for i_mark, mark in enumerate(marks):
+#     try:
+#         decode_mark(mark)
+#     except AssertionError as e:
+#         print(f"Failed @{i_mark}: {e}")
+#         print_raw_mark(i_mark, mark)
 
 decodes = [decode_mark(mark) for mark in marks]
 # Each mark-decode is (mark-time, line-decodes)
@@ -198,12 +219,21 @@ print(f"Num none-ok = {np.count_nonzero(~marks_someok)}")
 i_alloks = np.where(marks_ok)[0]
 i_nalloks = np.where(~marks_ok)[0]
 i_someoks = np.where(marks_someok)[0]
-i_nsomeoks = np.where(~marks_someok)[0]
+i_noneoks = np.where(~marks_someok)[0]
 print(f"First-all-ok={i_alloks[0]},  Last-all-ok={i_alloks[-1]}")
 print(f"First-notall-ok={i_nalloks[0]},  Last-notall-ok={i_nalloks[-1]}")
 print(f"First-some-ok={i_someoks[0]},  Last-some-ok={i_someoks[-1]}")
-print(f"First-none-ok={i_nsomeoks[0]},  Last-none-ok={i_nsomeoks[-1]}")
+print(f"First-none-ok={i_noneoks[0]},  Last-none-ok={i_noneoks[-1]}")
 # print(f"All noks :\n {i_noks}")
+
+
+
+#debug...
+prev_mark_day = datetime(2000,1,1)
+day_begun = False
+for i_mark in range(1664,1667):
+    decode_mark(marks[i_mark])
+
 
 # print('')
 # for i_mark in range(1231, 1234):
@@ -212,34 +242,114 @@ print(f"First-none-ok={i_nsomeoks[0]},  Last-none-ok={i_nsomeoks[-1]}")
 
 # Show ALL the nasties...
 
-# sel_noks = i_nalloks[145:]
-sel_noks = i_nalloks
-# for i_mark in sel_noks:
+out_mode = "intermediate"
+
+out_lines = []
+
+# for i_mark in i_noneoks:
+# for i_mark in range(260, 280):
+prev_date = datetime(2000,1,1)
+latest_date = prev_date
 for i_mark in range(len(mark_linesets)):
+    mark_time = mark_times[i_mark]
     infos = mark_linesets[i_mark]
     lines = mark_lines[i_mark]
     if not lines:
         continue
-    print('')
-    print(f'i_bad = {i_mark}')
+
+    # show raw CSV output split by entry day (for humans only)
+    current_date = datetime(mark_time.year, mark_time.month, mark_time.day)
+    if current_date > latest_date:
+        out_lines.append('')
+    latest_date = current_date
+
+    if i_mark not in i_alloks:
+        print('')
+        print(f'i_mark = {i_mark}')
+
     for i_line, (info, line) in enumerate(zip(infos, lines)):
         errs = info[2]
         if errs is None:
-            errs = ''
+            errs = ""
+            ok_str = "   "
         else:
-            errs = f"   ##{errs}"
+            assert i_mark not in i_alloks
+            if i_mark in i_someoks:
+                ok_str = "-?-"
+            else:
+                ok_str = "XXX"
+
         # if info[2] is not None:
         pill_str = 'PILL' if info[3] else ''
-        ok_str = '=!' if not errs else ''
+        # ok_str = '=!' if not errs else ''
         lev = info[1]
         if lev is not None:
             lev = '{:0.1f}'.format(lev)
         else:
             lev = ' --'
-        print(f'@{i_line:03d} T{info[0]} L{lev} {pill_str.ljust(4)} {ok_str.ljust(2)}  \\{line}\\ {errs!s}')
+
+        if 'no time' in errs and not pill_str:
+            ok_str = "SKIPPED!"
+
+        # if 'no level code' in errs and 'no time' in errs:
+        # if errs and 'no time' not in errs and 'no level code' not in errs:
+        # if errs: # and errs != ['no level code']:
+        print(f'@{i_line:03d} {ok_str} T{info[0]} L{lev} {pill_str.ljust(4)}  \\{line}\\ {errs!s}')
+
+        # # Skip out from certain errors
+        # if 'no time' in errs and not pill_str:
+        #     # Simply skip these ones : they seem to have no value
+        #     continue
+
+        line_els = [
+            'i-mark:', i_mark,
+            'i-line:', i_line
+        ]
+        line_els += [
+            'mark-time:', str(mark_time)
+        ]
+
+        tref = info[0]
+        fwd_date = "- - -" if tref >= prev_date else "BACK!"
+        prev_date = tref
+        line_els += [
+            "date-fwd:", fwd_date,
+            "datetime:",
+            tref.year, tref.month, tref.day,
+            tref.hour, tref.minute
+        ]
+
+        line_els += [
+            "pill:", 1 if pill_str else 0
+        ]
+        line_els += [
+            "level:", -1.0 if '--' in lev else float(lev)
+        ]
+        line_els += [
+            "errors:", errs
+        ]
+        # escape the line content : must not have
+        line_els += [
+            'raw:', line
+        ]
+
+        line_els = [repr(el) for el in line_els]
+        out_lines.append(', '.join(line_els))
 
 # import matplotlib.pyplot as plt
 # plt.plot(~marks_ok)
 # plt.show()
+
+# for i_line, line in enumerate(out_lines):
+#     print(f'line#{i_line:04} : "{line}"')
+
+filepth = Path(filepath)
+basename = filepth.name
+extension_string = '.json'
+assert basename.endswith(extension_string)
+outname = "output_" + basename[:-len(extension_string)] + ".csv"
+pth_out = filepth.parent / outname
+with open(pth_out, 'wt') as f_out:
+    f_out.write('\n'.join(out_lines))
 
 t_dbg = 0
