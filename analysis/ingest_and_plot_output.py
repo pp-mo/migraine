@@ -67,8 +67,9 @@ while len(break_indices):
 
 timepoints, levels, pills = [np.array(x) for x in (timepoints, levels, pills)]
 
+years = np.arange(2017, 2024)
 secs_in_day = 24.0 * 60. * 60.
-for i_year, year in enumerate(range(2017, 2024)):
+for i_year, year in enumerate(years):
     v_offs = i_year * 10.0
     mth_days = [0] * 12
     for i_month in range(1, 13):
@@ -109,9 +110,12 @@ for i_year, year in enumerate(range(2017, 2024)):
         x_pt = (month_start_day - start_day).total_seconds() / secs_in_day
         plt.plot([x_pt, x_pt], [-v_offs, -v_offs + 5], '--', color='blue')
 
-plt.plot([-80.], [0.0], '.', color='white')  # extend LHS to accommodate legend
+ax = plt.gca()
+ax.yaxis.set_ticks(
+    -10. * (years - years[0]),
+    [str(x) for x in years]
+)
 plt.suptitle('all data by years')
-plt.legend()
 plt.show()
 
 profile_points_xs = [[] for _ in range(2017, 2024)]
@@ -121,7 +125,7 @@ profile_points_ys = [[] for _ in range(2017, 2024)]
 show_profile_scatter = False
 
 for i_attack, (i_start, i_end) in enumerate(zip(attack_starts, attack_ends)):
-    i_year = timepoints[i_start].year - 2017
+    i_year = timepoints[i_start].year - years[0]
     v_offs = 10.0 * i_year
     time_offs = timepoints[i_start: i_end] - timepoints[i_start]
     time_offs = np.array([t.total_seconds() for t in time_offs])
@@ -135,7 +139,7 @@ for i_attack, (i_start, i_end) in enumerate(zip(attack_starts, attack_ends)):
         profile_points_ys[i_year].extend(ys)
         if show_profile_scatter:
             plt.plot(
-                xs, v_offs + ys, '.',
+                xs, -v_offs + ys, '.',
                 markersize=2.0, color='red'
             )
     else:
@@ -143,9 +147,21 @@ for i_attack, (i_start, i_end) in enumerate(zip(attack_starts, attack_ends)):
         assert 0
 
 if show_profile_scatter:
+    xmin, xmax = -3.0, 3.0
+    plt.hlines(
+        -10. * (years - years[0]),
+        xmin, xmax
+    )
+    ax = plt.gca()
+    ax.yaxis.set_ticks(
+        -10. * (years - years[0]),
+        [str(x) for x in years]
+    )
+    plt.suptitle('profile scatters by year')
     plt.show()
 
-for year, xs, ys in zip(range(2017, 2024), profile_points_xs, profile_points_ys):
+
+for year, xs, ys in zip(years, profile_points_xs, profile_points_ys):
     xs = np.array(xs)
     meanlev = np.array(ys).mean()
     sd = np.std(xs)
@@ -154,7 +170,7 @@ for year, xs, ys in zip(range(2017, 2024), profile_points_xs, profile_points_ys)
 n_bins = 60
 range_bins = np.linspace(-5.0, 5.0, n_bins + 1)
 bin_centres = 0.5 * (range_bins[:-1] + range_bins[1:])
-for year, xs, ys in zip(range(2017, 2024), profile_points_xs, profile_points_ys):
+for year, xs, ys in zip(years, profile_points_xs, profile_points_ys):
     xs, ys = (np.array(x) for x in (xs, ys))
     v_offs = 10.0 * (year - 2017)
     bin_entries = [[0.0] for _ in range(n_bins)]
@@ -167,8 +183,12 @@ for year, xs, ys in zip(range(2017, 2024), profile_points_xs, profile_points_ys)
     plt.plot(bin_centres[[0, -1]], [-v_offs - 0.1, -v_offs - 0.1], '--', color='lightgrey')
     plt.plot(bin_centres, -v_offs + profile, label=year)  # color='red'
 
-plt.title('attack profile by year')
-plt.legend()
+plt.title('mean attack profile by year')
+ax = plt.gca()
+ax.yaxis.set_ticks(
+    -10. * (years - years[0]),
+    [str(x) for x in years]
+)
 plt.show()
 
 

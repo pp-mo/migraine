@@ -6303,4 +6303,3 @@ day_groups.append([
   ["'i-mark:'", '1774', "'i-line:'", '7', "'mark-time:'", "'2023-12-30 12:00:00'", "'date-fwd:'", "'- - -'", "'date:'", '2023', '12', '30', "'time:'", '22', '0', "'pill:'", '0', "'level:'", '0.0', "'errors:'", "''", "'raw:'", "'2200 l0'"],
 ])
 
-print(day_groups)
