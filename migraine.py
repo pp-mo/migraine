@@ -2,6 +2,7 @@ from datetime import datetime, date, timedelta
 from glob import glob
 import json
 from pathlib import Path
+from pprint import pp
 import re
 
 filespec = 'combined*.json'
@@ -248,13 +249,14 @@ for i_mark in range(1664,1667):
 
 # Show ALL the nasties...
 
+# output_modes = ["csv-like", "intermediate"]
 # output_modes = ["intermediate"]
-# output_modes = ["csv-like"]
-output_modes = ["csv-like", "intermediate"]
+output_modes = ["csv-like", "csv-tofile", "csv-repr", "csv-repr-tofile"]
 
 
 if "csv-like" in output_modes:
     csv_output_lines = []
+    csv_output_groups = []
     # Reset (separate) per-day tracking logic for this
     prev_date = datetime(2000, 1, 1)
     latest_date = prev_date
@@ -273,6 +275,7 @@ for i_mark in range(len(mark_linesets)):
         current_date = datetime(mark_time.year, mark_time.month, mark_time.day)
         if current_date > latest_date:
             csv_output_lines.append('')
+            csv_output_groups.append([])
         latest_date = current_date
 
     if 'intermediate' in output_modes:
@@ -303,6 +306,7 @@ for i_mark in range(len(mark_linesets)):
 
         if 'no time' in errs and not pill_str:
             ok_str = "SKIPPED!"
+            errs.append("NOTIME-SKIP")
 
         if 'intermediate' in output_modes:
             # if 'no level code' in errs and 'no time' in errs:
@@ -329,8 +333,9 @@ for i_mark in range(len(mark_linesets)):
             prev_date = tref
             line_els += [
                 "date-fwd:", fwd_date,
-                "datetime:",
+                "date:",
                 tref.year, tref.month, tref.day,
+                "time:",
                 tref.hour, tref.minute
             ]
 
@@ -349,23 +354,89 @@ for i_mark in range(len(mark_linesets)):
             ]
 
             line_els = [repr(el) for el in line_els]
+            csv_output_groups.append(line_els)
             csv_output_lines.append(', '.join(line_els))
 
 # import matplotlib.pyplot as plt
 # plt.plot(~marks_ok)
 # plt.show()
 
-# for i_line, line in enumerate(out_lines):
-#     print(f'line#{i_line:04} : "{line}"')
 
 if "csv-like" in output_modes:
-    filepth = Path(filepath)
-    basename = filepth.name
-    extension_string = '.json'
-    assert basename.endswith(extension_string)
-    outname = "output_" + basename[:-len(extension_string)] + ".csv"
-    pth_out = filepth.parent / outname
-    with open(pth_out, 'wt') as f_out:
-        f_out.write('\n'.join(csv_output_lines))
+    # n_backs = 0
+    # n_skips = 0
+    # for i_line, (line, els) in enumerate(
+    #         zip(csv_output_lines, csv_output_groups)
+    # ):
+    #     if len(els) > 0:
+    #         fwd = els[els.index("'date-fwd:'")+1]
+    #         if "BACK" in fwd:
+    #             n_backs += 1
+    #             print(f'line#{i_line:04} : "{line}"')
+    #         errs = els[els.index("'errors:'") + 1]
+    #         if "NOTIME-SKIP" in errs:
+    #             n_skips += 1
+    #             print(f'line#{i_line:04} : "{line}"')
+    #
+    # print('\n\nN-BACKS = ', n_backs)
+    # print('\n\nN-SKIPS = ', n_skips)
+
+
+
+    # for i_line, line in enumerate(csv_output_lines):
+    #     print(f'line#{i_line:04} : "{line}"')
+    i_at = 0
+    csv_output_day_groups = []
+    current_group = []
+    for els in csv_output_groups:
+        if len(els) == 0:
+            csv_output_day_groups.append(current_group)
+            current_group = []
+        else:
+            current_group.append(els)
+
+    if "csv-repr" in output_modes:
+        # emit human-readable structured text in a repr-compatible form.
+        print('\n\nday_groups = [')
+        for els_group in csv_output_day_groups:
+            print('  [')
+            for els in els_group:
+                print('    ', repr(els), ',')
+            print('  ],')
+        print(']')
+
+    if "csv-repr-tofile" in output_modes:
+        # emit human-readable structured text TO FILE.
+        # SLOPPY failure of DRY but never mind ...
+        filepth = Path(filepath)
+        basename = filepth.name
+        extension_string = '.json'
+        assert basename.endswith(extension_string)
+        outname = "output_repr.py"
+        pth_out = filepth.parent / outname
+        with open(pth_out, 'wt') as f_out:
+            f_out.write('\n\nday_groups = []')
+            for els_group in csv_output_day_groups:
+                if len(els_group):
+                    f_out.write('\nday_groups.append([')
+                    for els in els_group:
+                        f_out.write(f'\n  {repr(els)},')
+                    f_out.write('\n])')
+
+            f_out.write('\n\nprint(day_groups)\n')
+
+    # NOTE:
+    #   N-BACKS = 135
+    #   N-SKIPS = 269
+
+    if "csv-tofile" in output_modes:
+        filepth = Path(filepath)
+        basename = filepth.name
+        extension_string = '.json'
+        assert basename.endswith(extension_string)
+        outname = "output_" + basename[:-len(extension_string)] + ".csv"
+        pth_out = filepth.parent / outname
+        with open(pth_out, 'wt') as f_out:
+            f_out.write('\n'.join(csv_output_lines))
 
 t_dbg = 0
